@@ -42,7 +42,7 @@ class VerifierDataLoader(Dataset):
             x1 = self.transformation(x1)
             x2 = self.transformation(x2)
 
-        return x1, x2, y
+        return x1, x2, x1_path, x2_path, y
 
     def __len__(self):
         return self.df.shape[0]

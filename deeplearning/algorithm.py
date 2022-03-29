@@ -69,10 +69,6 @@ def classification_train(
 
     net = net.float()
 
-    if device != 'cpu' and gpu and torch.cuda.is_available():
-        if device.type == 'cuda':
-            net = net.cuda(device=device)
-
     for e in range(epoch):
         net.train()
         with tqdm(train_dataloader, unit="batch") as tepoch:
@@ -100,21 +96,20 @@ def classification_train(
 
                 out = net(X)
 
-                # import pdb
-                # pdb.set_trace()
-
                 correct = (torch.argmax(out, dim=1) ==
                            torch.argmax(Y, dim=1)).sum().item()
                 accuracy = (correct / batch_size)*100
 
                 loss = criterion(out, Y)
 
-                report.append({
-                    "epoch": e,
-                    "train/eval": "train",
-                    "batch_size": X.shape[0],
+                current_report = pd.DataFrame({
+                    "epoch": epoch,
+                    "train/eval": "eval",
+                    "batch_size": Y.shape[0],
                     "loss": loss.item(),
-                    "acc": accuracy}, ignore_index=True)
+                    "acc": accuracy})
+
+                report = pd.concat([report, current_report])
 
                 accuracy = int(accuracy)
 
@@ -177,10 +172,6 @@ def classification_eval(
     net = net.float()
     net.train(mode=False)
 
-    if device != 'cpu' and gpu and torch.cuda.is_available():
-        if device.type == 'cuda':
-            net = net.cuda(device=device)
-
     with tqdm(dataloader, unit="batch") as tepoch:
         for (X, Y) in tepoch:
             tepoch.set_description(tqbar_description)
@@ -209,17 +200,79 @@ def classification_eval(
 
             loss = criterion(out, Y)
 
-            report.append({
+            current_report = pd.DataFrame({
                 "epoch": epoch,
                 "train/eval": "eval",
                 "batch_size": Y.shape[0],
                 "loss": loss.item(),
-                "acc": accuracy}, ignore_index=True)
+                "acc": accuracy})
+
+            report = pd.concat([report, current_report])
 
             accuracy = int(accuracy)
 
             tepoch.set_postfix(
                 loss="{:.3f}".format(loss.item()),
                 accuracy=f"{accuracy:03d}")
+
+    return report
+
+
+def verification(
+        net,
+        dataloader,
+        distance,
+        device,
+        batch_size=16,
+        num_workers=1,
+        gpu=False,
+        tqbar_description="Verification"):
+
+    dataloader = DataLoader(dataset=dataloader,
+                            batch_size=batch_size,
+                            shuffle=True,
+                            pin_memory=gpu and torch.cuda.is_available(),
+                            num_workers=num_workers
+                            )
+
+    report = pd.DataFrame(
+        columns=["image_A", "image_B", "distance"])
+
+    net = net.float()
+    net.train(mode=False)
+
+    with tqdm(dataloader, unit="batch") as tepoch:
+        for (X_1, X_2, file_1, file_2, _) in tepoch:
+            tepoch.set_description(tqbar_description)
+
+            X_1, X_2 = V(X_1), V(X_2)
+
+            if device != 'cpu' and gpu and torch.cuda.is_available():
+                if device.type == 'cuda':
+                    X, Y = X.cuda(device=device), Y.cuda(device=device)
+                elif device == 'multi':
+                    X, Y = nn.DataParallel(X), nn.DataParallel(Y)
+
+            feature_1 = net(X_1)
+            feature_2 = net(X_1)
+
+            dist = distance(feature_1, feature_2)
+
+            file_1 = list(file_1)
+            file_2 = list(file_2)
+
+            current_report = pd.DataFrame({
+                "image_A": file_1,
+                "image_B": file_2,
+                "distance": dist.tolist()
+            })
+
+            # import pdb
+            # pdb.set_trace()
+            report = pd.concat([report, current_report])
+
+            # tepoch.set_postfix(
+            #     loss="{:.3f}".format(loss.item()),
+            #     accuracy=f"{accuracy:03d}")
 
     return report
